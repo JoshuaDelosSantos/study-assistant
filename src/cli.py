@@ -41,7 +41,7 @@ def display_banner() -> None:
     """Display the application banner."""
     banner = f"""
 [bold cyan]{APP_TITLE}[/bold cyan] [dim]v{APP_VERSION}[/dim]
-Your personal AI study companion
+Terminal based question answering assistant for your study materials
     """
     console.print(Panel(banner.strip(), border_style="cyan"))
 
