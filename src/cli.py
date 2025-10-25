@@ -17,10 +17,12 @@ from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
+from rich.prompt import Prompt, Confirm
 
 from src.config import Config, load_config, config_exists
 from src.setup_wizard import run_setup_wizard
+from src.vector_store import VectorStore
+from src.indexer import DocumentIndexer
 
 
 # ============================================================================
@@ -105,8 +107,34 @@ def run_main_loop(config: Config) -> None:
     """
     console.print("[cyan]Starting Study Assistant...[/cyan]\n")
     
-    # TODO: Initialize components (vector store, agent, etc.)
-    # This will be implemented in later phases
+    # Initialize vector store
+    console.print("[cyan]Initializing vector store...[/cyan]")
+    vector_store = VectorStore(config)
+    
+    if not vector_store.initialize():
+        console.print("[red]Failed to initialize vector store[/red]")
+        sys.exit(1)
+    
+    # Check schema version
+    needs_reindex, reason = vector_store.needs_reindex()
+    if needs_reindex:
+        console.print(f"\n[yellow]Configuration has changed:[/yellow]")
+        console.print(f"[yellow]{reason}[/yellow]\n")
+        
+        if Confirm.ask("Reindex documents now?", default=True):
+            reindex_documents(vector_store, config)
+        else:
+            console.print("[yellow]Warning: Using existing index with different configuration[/yellow]\n")
+    
+    # Check if we need to index documents
+    stats = vector_store.get_stats()
+    if stats.total_documents == 0:
+        console.print("[yellow]No documents indexed yet[/yellow]")
+        
+        if Confirm.ask("Index documents now?", default=True):
+            indexer = DocumentIndexer(config, vector_store)
+            indexer.index_all()
+            console.print()
     
     console.print("[bold green]Ready![/bold green]")
     console.print("Ask me anything about your study materials.")
@@ -129,16 +157,15 @@ def run_main_loop(config: Config) -> None:
                 display_help()
             
             elif query.lower() == "status":
-                display_status(config)
+                display_status(config, vector_store)
             
             elif query.lower() == "reindex":
-                console.print("[yellow]Reindexing not yet implemented[/yellow]")
-                # TODO: Implement reindexing
+                reindex_documents(vector_store, config)
             
             else:
                 # Process query
-                # TODO: Implement query processing via RAG agent
-                console.print("[yellow]Query processing not yet implemented[/yellow]")
+                # TODO: Implement query processing via RAG agent (Phase 3)
+                console.print("[yellow]Query processing not yet implemented (Phase 3)[/yellow]")
                 console.print(f"[dim]You asked: {query}[/dim]\n")
         
         except KeyboardInterrupt:
@@ -177,28 +204,102 @@ def display_help() -> None:
     console.print()
 
 
-def display_status(config: Config) -> None:
+def display_status(config: Config, vector_store: Optional[VectorStore] = None) -> None:
     """
     Display current configuration and system status.
     
     Args:
         config: Application configuration
+        vector_store: Optional initialized vector store
     """
-    status_text = f"""
-[bold]Configuration:[/bold]
-
-  LLM Provider:  {config.llm_provider}
-  Model:         {config.llm_model or 'default'}
-  Directories:   {len(config.directories)} configured
-  
-[bold]System Status:[/bold]
-
-  Vector Store:  [yellow]Not initialized[/yellow]
-  Documents:     [yellow]Not indexed[/yellow]
-  Agent:         [yellow]Not initialized[/yellow]
-    """
-    console.print(Panel(status_text.strip(), title="Status", border_style="cyan"))
+    status_lines = [
+        "[bold]Configuration:[/bold]",
+        "",
+        f"  LLM Provider:  {config.llm_provider}",
+        f"  Model:         {config.llm_model or 'default'}",
+        f"  Directories:   {len(config.directories)} configured",
+        "",
+        "[bold]System Status:[/bold]",
+        ""
+    ]
+    
+    if vector_store:
+        try:
+            stats = vector_store.get_stats()
+            status_lines.extend([
+                f"  Vector Store:      [green]Initialized[/green]",
+                f"  Documents:         {stats.indexed_files_count} files, {stats.total_chunks} chunks",
+                f"  Embedding Model:   {stats.embedding_model} ({stats.embedding_dimension}d)",
+                f"  Schema Version:    {stats.schema_version}",
+                f"  Chunk Size:        {stats.chunk_size} chars (overlap: {stats.chunk_overlap})",
+            ])
+            
+            if stats.last_indexed:
+                try:
+                    from datetime import datetime
+                    indexed_dt = datetime.fromisoformat(stats.last_indexed)
+                    indexed_str = indexed_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    status_lines.append(f"  Last Indexed:      {indexed_str}")
+                except Exception:
+                    status_lines.append(f"  Last Indexed:      {stats.last_indexed}")
+            
+            # Check for config mismatches
+            needs_reindex, reason = vector_store.needs_reindex()
+            if needs_reindex:
+                status_lines.extend([
+                    "",
+                    "[yellow]⚠️  Configuration Mismatch:[/yellow]",
+                    f"[yellow]   {reason}[/yellow]",
+                    "[yellow]   Run 'reindex' to update[/yellow]"
+                ])
+                
+        except Exception as e:
+            status_lines.append(f"  Vector Store:  [red]Error: {e}[/red]")
+    else:
+        status_lines.extend([
+            "  Vector Store:  [yellow]Not initialized[/yellow]",
+            "  Documents:     [yellow]Not indexed[/yellow]",
+        ])
+    
+    status_text = "\n".join(status_lines)
+    console.print(Panel(status_text, title="Status", border_style="cyan"))
     console.print()
+
+
+def reindex_documents(vector_store: VectorStore, config: Config) -> None:
+    """
+    Reindex all documents from scratch.
+    
+    This is a destructive operation that deletes the existing collection
+    and rebuilds it from the configured directories.
+    
+    Args:
+        vector_store: Initialized vector store
+        config: Application configuration
+    """
+    console.print("\n[bold yellow]⚠️  Reindexing Warning[/bold yellow]")
+    console.print("This will delete all existing indexed documents and rebuild from scratch.")
+    console.print()
+    
+    if not Confirm.ask("Are you sure you want to continue?", default=False):
+        console.print("[yellow]Reindex cancelled[/yellow]\n")
+        return
+    
+    console.print("\n[cyan]Clearing existing index...[/cyan]")
+    vector_store.clear()
+    
+    # Reinitialize collection
+    console.print("[cyan]Recreating collection...[/cyan]")
+    if not vector_store.initialize():
+        console.print("[red]Failed to recreate collection[/red]\n")
+        return
+    
+    # Index documents
+    console.print("[cyan]Indexing documents...[/cyan]\n")
+    indexer = DocumentIndexer(config, vector_store)
+    stats = indexer.index_all()
+    
+    console.print("\n[green]Reindexing complete![/green]\n")
 
 
 # ============================================================================
