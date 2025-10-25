@@ -6,6 +6,9 @@ pytest>=7.4.0
 pytest-cov>=4.1.0
 pytest-mock>=3.12.0
 
+# Test Fixtures
+reportlab>=4.0.0  # For generating test PDFs
+
 # Code Quality
 black>=23.12.0
 ruff>=0.1.9
