@@ -518,3 +518,93 @@ def sample_documents_dir(
     """
     # All files are already in temp_dir, just return it
     return temp_dir
+
+
+# ============================================================================
+# LLM Provider Fixtures (Phase 3)
+# ============================================================================
+
+@pytest.fixture
+def mock_openai_client(mocker):
+    """
+    Mock OpenAI client for testing LLM providers.
+    
+    Returns a mock that simulates OpenAI API responses.
+    
+    Args:
+        mocker: pytest-mock fixture
+        
+    Returns:
+        Mock OpenAI client
+    """
+    from unittest.mock import Mock
+    
+    mock_client = Mock()
+    mock_response = Mock()
+    mock_response.choices = [Mock(message=Mock(content="Mocked OpenAI response"))]
+    mock_response.usage = Mock(
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30
+    )
+    mock_response.model = "gpt-4o"
+    
+    mock_client.chat.completions.create.return_value = mock_response
+    
+    return mock_client
+
+
+@pytest.fixture
+def mock_gemini_model(mocker):
+    """
+    Mock Gemini model for testing LLM providers.
+    
+    Returns a mock that simulates Gemini API responses.
+    
+    Args:
+        mocker: pytest-mock fixture
+        
+    Returns:
+        Mock Gemini model
+    """
+    from unittest.mock import Mock
+    
+    mock_model = Mock()
+    mock_response = Mock()
+    mock_response.text = "Mocked Gemini response"
+    mock_response.usage_metadata = Mock(
+        prompt_token_count=10,
+        candidates_token_count=20,
+        total_token_count=30
+    )
+    
+    mock_model.generate_content.return_value = mock_response
+    mock_model.count_tokens.return_value = Mock(total_tokens=10)
+    
+    return mock_model
+
+
+@pytest.fixture
+def mock_tiktoken_encoding(mocker):
+    """
+    Mock tiktoken encoding for testing token counting.
+    
+    Returns a mock that simulates tiktoken encoding behavior.
+    
+    Args:
+        mocker: pytest-mock fixture
+        
+    Returns:
+        Mock tiktoken encoding
+    """
+    from unittest.mock import Mock
+    
+    mock_encoding = Mock()
+    
+    def mock_encode(text):
+        """Simulate encoding: ~4 chars per token."""
+        return [0] * max(1, len(text) // 4)
+    
+    mock_encoding.encode = mock_encode
+    
+    return mock_encoding
