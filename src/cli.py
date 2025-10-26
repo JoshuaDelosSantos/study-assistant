@@ -23,6 +23,8 @@ from src.config import Config, load_config, config_exists
 from src.setup_wizard import run_setup_wizard
 from src.vector_store import VectorStore
 from src.indexer import DocumentIndexer
+from src.llm_providers import create_provider
+from src.agent import RAGAgent
 
 
 # ============================================================================
@@ -136,6 +138,25 @@ def run_main_loop(config: Config) -> None:
             indexer.index_all()
             console.print()
     
+    # Initialize LLM provider
+    console.print("[cyan]Initializing LLM provider...[/cyan]")
+    try:
+        llm_provider = create_provider(
+            provider_type=config.llm_provider,
+            api_key=config.llm_api_key,
+            model=config.llm_model or config.get_model_default(),
+            temperature=config.llm_temperature
+        )
+        console.print(f"[green]LLM provider initialized: {config.llm_provider}/{config.llm_model or config.get_model_default()}[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to initialize LLM provider: {e}[/red]")
+        console.print("[yellow]Please check your API key and configuration[/yellow]")
+        sys.exit(1)
+    
+    # Initialize RAG agent
+    console.print("[cyan]Initializing RAG agent...[/cyan]")
+    agent = RAGAgent(config, vector_store, llm_provider)
+    
     console.print("[bold green]Ready![/bold green]")
     console.print("Ask me anything about your study materials.")
     console.print("[dim]Type 'help' for commands, 'q' or 'exit' to quit.[/dim]\n")
@@ -163,10 +184,8 @@ def run_main_loop(config: Config) -> None:
                 reindex_documents(vector_store, config)
             
             else:
-                # Process query
-                # TODO: Implement query processing via RAG agent (Phase 3)
-                console.print("[yellow]Query processing not yet implemented (Phase 3)[/yellow]")
-                console.print(f"[dim]You asked: {query}[/dim]\n")
+                # Process query using RAG agent
+                process_query(agent, query, config)
         
         except KeyboardInterrupt:
             console.print("\n\n[yellow]Use 'q' or 'exit' to quit.[/yellow]")
@@ -179,6 +198,64 @@ def run_main_loop(config: Config) -> None:
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+def process_query(agent: RAGAgent, query: str, config: Config) -> None:
+    """
+    Process a user query using the RAG agent and display results.
+    
+    Args:
+        agent: Initialized RAG agent
+        query: User query string
+        config: Application configuration
+    """
+    console.print()
+    
+    try:
+        # Process query
+        with console.status("[cyan]Thinking...[/cyan]", spinner="dots"):
+            response = agent.process_query(query)
+        
+        # Display answer
+        console.print("[bold cyan]Answer:[/bold cyan]")
+        console.print(response.answer)
+        console.print()
+        
+        # Display sources if enabled
+        if config.show_sources and response.sources:
+            console.print("[bold cyan]Sources:[/bold cyan]")
+            for i, source in enumerate(response.sources, 1):
+                if source.page is not None:
+                    # PDF with page number
+                    console.print(
+                        f"  {i}. [dim]{source.filename}[/dim] "
+                        f"(Page {source.page}, Chunk {source.chunk_index}) "
+                        f"[dim]- similarity: {source.similarity:.2f}[/dim]"
+                    )
+                else:
+                    # Other document types
+                    console.print(
+                        f"  {i}. [dim]{source.filename}[/dim] "
+                        f"(Chunk {source.chunk_index}) "
+                        f"[dim]- similarity: {source.similarity:.2f}[/dim]"
+                    )
+            console.print()
+        
+        # Display token usage if enabled
+        if config.track_tokens and response.tokens_used:
+            console.print(
+                f"[dim]Tokens: {response.prompt_tokens} prompt + "
+                f"{response.completion_tokens} completion = "
+                f"{response.tokens_used} total[/dim]"
+            )
+            console.print()
+    
+    except Exception as e:
+        console.print(f"[red]Error processing query: {e}[/red]")
+        if config.verbose:
+            import traceback
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        console.print()
+
 
 def display_help() -> None:
     """Display available commands."""
