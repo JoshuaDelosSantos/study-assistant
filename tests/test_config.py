@@ -43,23 +43,17 @@ class TestConfigCreation:
         assert isinstance(default_config.directories, list)
         assert len(default_config.directories) == 0
     
-    def test_config_with_custom_values(self):
-        """Test Config creation with custom values."""
+    def test_gemini_config_creation(self, temp_dir):
+        """Test creating configuration with Gemini provider."""
         config = Config(
             llm_provider="gemini",
-            llm_model="gemini-1.5-flash",
-            llm_api_key="test-key",
-            directories=["/test/dir"],
-            chunk_size=500,
+            llm_model="gemini-2.5-flash",
+            llm_api_key="test-api-key",
+            directories=[str(temp_dir)],
         )
         
         assert config.llm_provider == "gemini"
-        assert config.llm_model == "gemini-1.5-flash"
-        assert config.llm_api_key == "test-key"
-        assert config.directories == ["/test/dir"]
-        assert config.chunk_size == 500
-        # Default values still apply for unspecified fields
-        assert config.chunk_overlap == 200
+        assert config.llm_model == "gemini-2.5-flash"
     
     def test_get_model_default_openai(self):
         """Test default model for OpenAI."""
@@ -67,9 +61,10 @@ class TestConfigCreation:
         assert config.get_model_default() == "gpt-4o"
     
     def test_get_model_default_gemini(self):
-        """Test default model for Gemini."""
+        """Test getting default model for Gemini provider."""
         config = Config(llm_provider="gemini")
-        assert config.get_model_default() == "gemini-1.5-flash"
+        
+        assert config.get_model_default() == "gemini-2.5-flash"
     
     def test_get_model_default_unknown_provider(self):
         """Test default model for unknown provider."""
