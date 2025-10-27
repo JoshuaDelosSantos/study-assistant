@@ -229,14 +229,23 @@ class OpenAIProvider(LLMProvider):
 class GeminiProvider(LLMProvider):
     """Google Gemini API provider implementation."""
     
-    # Known model context limits
+    # Known model context limits (as of October 2025)
     MODEL_LIMITS = {
+        # Gemini 2.5 models (stable)
+        "gemini-2.5-flash": 1048576,
+        "gemini-2.5-flash-lite": 1048576,
+        "gemini-2.5-pro": 1048576,
+        # Gemini 2.0 models (previous generation)
+        "gemini-2.0-flash": 1048576,
+        "gemini-2.0-flash-exp": 1048576,
+        "gemini-2.0-flash-lite": 1048576,
+        # Legacy models
         "gemini-1.5-pro": 2000000,
         "gemini-1.5-flash": 1000000,
         "gemini-1.0-pro": 32760,
     }
     
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash", temperature: float = 0.7):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash", temperature: float = 0.7):
         """
         Initialize Gemini provider.
         
