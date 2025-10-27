@@ -9,6 +9,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 import logging
+import time
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,59 @@ class LLMResponse:
     content: str
     usage: Optional[TokenUsage] = None
     model: Optional[str] = None
+
+
+def retry_with_backoff(max_attempts: int = 3, base_delay: float = 1.0):
+    """
+    Retry decorator with exponential backoff for transient API failures.
+    
+    Retries on:
+    - Rate limit errors (429)
+    - Server errors (500, 502, 503)
+    - Timeout errors
+    
+    Does NOT retry on:
+    - Authentication errors (401)
+    - Bad request errors (400)
+    - Other client errors
+    
+    Args:
+        max_attempts: Maximum number of retry attempts (default: 3)
+        base_delay: Base delay in seconds for exponential backoff (default: 1.0)
+    
+    Returns:
+        Decorated function with retry logic
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_str = str(e).lower()
+                    
+                    # Check if error is retryable
+                    is_retryable = any(
+                        keyword in error_str 
+                        for keyword in ['rate limit', 'timeout', '429', '500', '502', '503', 'timed out']
+                    )
+                    
+                    # If not retryable or final attempt, give up
+                    if not is_retryable or attempt == max_attempts - 1:
+                        raise
+                    
+                    # Calculate exponential backoff delay
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        f"API call failed (attempt {attempt + 1}/{max_attempts}), "
+                        f"retrying in {delay:.1f}s: {e}"
+                    )
+                    time.sleep(delay)
+            
+            return None  # Should never reach here
+        return wrapper
+    return decorator
 
 
 class LLMProvider(ABC):
@@ -130,32 +185,29 @@ class OpenAIProvider(LLMProvider):
                 "Install with: pip install tiktoken>=0.5.2"
             )
     
+    @retry_with_backoff(max_attempts=3, base_delay=1.0)
     def generate(self, prompt: str, max_tokens: Optional[int] = None) -> LLMResponse:
-        """Generate response using OpenAI API."""
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-                max_tokens=max_tokens
+        """Generate response using OpenAI API with automatic retry on transient failures."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=max_tokens
+        )
+        
+        usage = None
+        if response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens
             )
-            
-            usage = None
-            if response.usage:
-                usage = TokenUsage(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
-                    total_tokens=response.usage.total_tokens
-                )
-            
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                usage=usage,
-                model=response.model
-            )
-        except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
-            raise
+        
+        return LLMResponse(
+            content=response.choices[0].message.content,
+            usage=usage,
+            model=response.model
+        )
     
     def count_tokens(self, text: str) -> int:
         """Count tokens using tiktoken."""
@@ -206,37 +258,34 @@ class GeminiProvider(LLMProvider):
                 "Install with: pip install google-generativeai>=0.3.0"
             )
     
+    @retry_with_backoff(max_attempts=3, base_delay=1.0)
     def generate(self, prompt: str, max_tokens: Optional[int] = None) -> LLMResponse:
-        """Generate response using Gemini API."""
-        try:
-            generation_config = {
-                "temperature": self.temperature,
-            }
-            if max_tokens:
-                generation_config["max_output_tokens"] = max_tokens
-            
-            response = self.model_obj.generate_content(
-                prompt,
-                generation_config=generation_config
+        """Generate response using Gemini API with automatic retry on transient failures."""
+        generation_config = {
+            "temperature": self.temperature,
+        }
+        if max_tokens:
+            generation_config["max_output_tokens"] = max_tokens
+        
+        response = self.model_obj.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+        
+        # Gemini returns token usage in response
+        usage = None
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            usage = TokenUsage(
+                prompt_tokens=response.usage_metadata.prompt_token_count,
+                completion_tokens=response.usage_metadata.candidates_token_count,
+                total_tokens=response.usage_metadata.total_token_count
             )
-            
-            # Gemini returns token usage in response
-            usage = None
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                usage = TokenUsage(
-                    prompt_tokens=response.usage_metadata.prompt_token_count,
-                    completion_tokens=response.usage_metadata.candidates_token_count,
-                    total_tokens=response.usage_metadata.total_token_count
-                )
-            
-            return LLMResponse(
-                content=response.text,
-                usage=usage,
-                model=self.model
-            )
-        except Exception as e:
-            logger.error(f"Gemini API error: {e}")
-            raise
+        
+        return LLMResponse(
+            content=response.text,
+            usage=usage,
+            model=self.model
+        )
     
     def count_tokens(self, text: str) -> int:
         """Count tokens using Gemini's count_tokens API."""
