@@ -128,16 +128,16 @@ class TestGeminiProvider:
         """Test Gemini provider initializes correctly."""
         provider = GeminiProvider(
             api_key="test-key",
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.5
         )
-        assert provider.model == "gemini-1.5-flash"
+        assert provider.model == "gemini-2.5-flash"
         assert provider.temperature == 0.5
         assert provider.model_obj is not None
     
     def test_generate(self, mock_gemini_env, mocker):
         """Test generation with Gemini API."""
-        provider = GeminiProvider(api_key="test-key", model="gemini-1.5-flash")
+        provider = GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
         
         # Mock the API response
         mock_response = Mock()
@@ -161,11 +161,11 @@ class TestGeminiProvider:
         assert response.usage.prompt_tokens == 10
         assert response.usage.completion_tokens == 5
         assert response.usage.total_tokens == 15
-        assert response.model == "gemini-1.5-flash"
+        assert response.model == "gemini-2.5-flash"
     
     def test_count_tokens(self, mock_gemini_env, mocker):
         """Test token counting with Gemini API."""
-        provider = GeminiProvider(api_key="test-key", model="gemini-1.5-flash")
+        provider = GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
         
         # Mock count_tokens response
         mock_result = Mock(total_tokens=5)
@@ -188,7 +188,7 @@ class TestGeminiProvider:
     
     def test_count_tokens_fallback(self, mock_gemini_env, mocker):
         """Test token counting fallback on error."""
-        provider = GeminiProvider(api_key="test-key", model="gemini-1.5-flash")
+        provider = GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
         
         # Mock count_tokens to raise exception
         mocker.patch.object(
@@ -204,8 +204,8 @@ class TestGeminiProvider:
     
     def test_get_max_tokens(self, mock_gemini_env):
         """Test getting maximum token limits."""
-        provider = GeminiProvider(api_key="test-key", model="gemini-1.5-flash")
-        assert provider.get_max_tokens() == 1000000
+        provider = GeminiProvider(api_key="test-key", model="gemini-2.5-flash")
+        assert provider.get_max_tokens() == 1048576
         
         provider = GeminiProvider(api_key="test-key", model="gemini-1.5-pro")
         assert provider.get_max_tokens() == 2000000
@@ -235,11 +235,11 @@ class TestCreateProvider:
         provider = create_provider(
             provider_type="gemini",
             api_key="test-key",
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.5
         )
         assert isinstance(provider, GeminiProvider)
-        assert provider.model == "gemini-1.5-flash"
+        assert provider.model == "gemini-2.5-flash"
         assert provider.temperature == 0.5
     
     def test_case_insensitive(self, mock_openai_env):
