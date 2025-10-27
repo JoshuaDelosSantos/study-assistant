@@ -96,7 +96,7 @@ class TestPhase3Integration:
         # Setup configuration for Gemini
         config = Config(
             llm_provider="gemini",
-            llm_model="gemini-1.5-flash",
+            llm_model="gemini-2.5-flash",
             llm_api_key=mock_gemini_env,
             directories=[str(temp_dir)],
             top_k=2
@@ -113,7 +113,7 @@ class TestPhase3Integration:
         llm_provider = create_provider(
             provider_type="gemini",
             api_key=mock_gemini_env,
-            model="gemini-1.5-flash"
+            model="gemini-2.5-flash"
         )
         
         # Mock the LLM response
@@ -125,7 +125,7 @@ class TestPhase3Integration:
                 completion_tokens=15,
                 total_tokens=60
             ),
-            model="gemini-1.5-flash"
+            model="gemini-2.5-flash"
         )
         mocker.patch.object(llm_provider, 'generate', return_value=mock_response)
         
