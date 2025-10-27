@@ -163,8 +163,9 @@ def run_main_loop(config: Config) -> None:
     
     while True:
         try:
-            # Get user input
-            query = Prompt.ask("[bold cyan]>[/bold cyan]").strip()
+            # Get user input with turn counter
+            turn_number = len(agent.conversation_history) + 1
+            query = Prompt.ask(f"[bold cyan][{turn_number}]>[/bold cyan]").strip()
             
             if not query:
                 continue
@@ -182,6 +183,12 @@ def run_main_loop(config: Config) -> None:
             
             elif query.lower() == "reindex":
                 reindex_documents(vector_store, config)
+            
+            elif query.lower() == "history":
+                display_conversation_history(agent)
+            
+            elif query.lower() == "clear":
+                clear_conversation_history(agent)
             
             else:
                 # Process query using RAG agent
@@ -264,18 +271,21 @@ def display_help() -> None:
 
   [cyan]help[/cyan]      - Show this help message
   [cyan]status[/cyan]    - Display configuration and system status
+  [cyan]history[/cyan]   - View conversation history
+  [cyan]clear[/cyan]     - Clear conversation history
   [cyan]reindex[/cyan]   - Rebuild document index
   [cyan]q, exit[/cyan]   - Quit the application
 
 [bold]Usage:[/bold]
 
   Simply type your question and press Enter to get answers from your study materials.
+  The assistant maintains conversation history, so you can ask follow-up questions.
   
 [bold]Examples:[/bold]
 
   > What are the key concepts in my CS101 notes?
   > Explain the difference between supervised and unsupervised learning
-  > Summarise the main points from my calculus lectures
+  > How does that relate to what you just explained?  [dim](uses conversation history)[/dim]
     """
     console.print(Panel(help_text.strip(), title="Help", border_style="cyan"))
     console.print()
@@ -378,6 +388,59 @@ def reindex_documents(vector_store: VectorStore, config: Config) -> None:
     
     console.print("\n[green]Reindexing complete![/green]\n")
 
+
+def display_conversation_history(agent: RAGAgent) -> None:
+    """
+    Display the conversation history.
+    
+    Args:
+        agent: RAG agent with conversation history
+    """
+    if not agent.conversation_history:
+        console.print("[yellow]No conversation history yet. Ask a question to start![/yellow]\n")
+        return
+    
+    console.print(f"\n[bold cyan]Conversation History ({len(agent.conversation_history)} turns):[/bold cyan]\n")
+    
+    for i, turn in enumerate(agent.conversation_history.turns, 1):
+        # Display query
+        console.print(f"[bold cyan][{i}] Q:[/bold cyan] {turn.query}")
+        
+        # Display answer (truncated if too long)
+        answer = turn.answer
+        if len(answer) > 200:
+            answer = answer[:200] + "..."
+        console.print(f"[bold green]    A:[/bold green] {answer}")
+        
+        # Display metadata
+        metadata_parts = []
+        if turn.sources:
+            metadata_parts.append(f"{len(turn.sources)} sources")
+        if turn.tokens_used:
+            metadata_parts.append(f"{turn.tokens_used} tokens")
+        
+        if metadata_parts:
+            console.print(f"[dim]    ({', '.join(metadata_parts)})[/dim]")
+        
+        console.print()
+    
+    console.print()
+
+
+def clear_conversation_history(agent: RAGAgent) -> None:
+    """
+    Clear the conversation history.
+    
+    Args:
+        agent: RAG agent with conversation history
+    """
+    if not agent.conversation_history:
+        console.print("[yellow]Conversation history is already empty.[/yellow]\n")
+        return
+    
+    turn_count = len(agent.conversation_history)
+    agent.conversation_history.clear()
+    console.print(f"[green]✓ Cleared {turn_count} turn(s) from conversation history[/green]\n")
 
 # ============================================================================
 # Module Testing
