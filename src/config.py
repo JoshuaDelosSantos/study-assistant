@@ -124,7 +124,7 @@ class Config:
         if self.llm_provider == "openai":
             return "gpt-4o"
         elif self.llm_provider == "gemini":
-            return "gemini-1.5-flash"
+            return "gemini-2.5-flash"
         else:
             return "gpt-4o"
     
