@@ -393,3 +393,133 @@ class TestAgentResponse:
         assert response.tokens_used is None
         assert response.prompt_tokens is None
         assert response.completion_tokens is None
+
+
+class TestConversationHistoryIntegration:
+    """Tests for conversation history integration in RAGAgent."""
+    
+    def test_agent_has_conversation_history(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that agent initializes with conversation history."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        assert hasattr(agent, 'conversation_history')
+        assert len(agent.conversation_history) == 0
+        assert agent.conversation_history.max_turns == 10
+    
+    def test_query_adds_turn_to_history(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that processing a query adds a turn to history."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        # Initial state
+        assert len(agent.conversation_history) == 0
+        
+        # Process query
+        response = agent.process_query("What is Python?")
+        
+        # History should have one turn
+        assert len(agent.conversation_history) == 1
+        assert agent.conversation_history.turns[0].query == "What is Python?"
+        assert agent.conversation_history.turns[0].answer == response.answer
+        assert len(agent.conversation_history.turns[0].sources) > 0
+    
+    def test_multiple_queries_build_history(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that multiple queries build up conversation history."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        # Process multiple queries
+        agent.process_query("What is Python?")
+        agent.process_query("What are its features?")
+        agent.process_query("How does it compare to Java?")
+        
+        # History should have all three turns
+        assert len(agent.conversation_history) == 3
+        assert agent.conversation_history.turns[0].query == "What is Python?"
+        assert agent.conversation_history.turns[1].query == "What are its features?"
+        assert agent.conversation_history.turns[2].query == "How does it compare to Java?"
+    
+    def test_conversation_history_in_prompt(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that conversation history is included in prompt."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        # First query
+        agent.process_query("What is Python?")
+        
+        # Second query should include first query in prompt
+        agent.process_query("Tell me more")
+        
+        # Check that generate was called with conversation history
+        calls = mock_llm_provider.generate.call_args_list
+        assert len(calls) == 2
+        
+        # Second call should have conversation history in prompt
+        second_prompt = calls[1][1]['prompt']
+        assert "Previous conversation:" in second_prompt
+        assert "What is Python?" in second_prompt
+    
+    def test_token_budget_accounts_for_history(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that token budget calculation includes conversation history."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        # Add some history
+        agent.process_query("First query")
+        agent.process_query("Second query")
+        
+        # Calculate budget for third query
+        budget = agent._calculate_token_budget("Third query")
+        
+        # Budget should be positive (history accounted for)
+        assert budget > 0
+        
+        # Mock should have been called to count conversation tokens
+        assert mock_llm_provider.count_tokens.call_count > 0
+    
+    def test_clear_conversation_history(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that conversation history can be cleared."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        # Build up history
+        agent.process_query("Query 1")
+        agent.process_query("Query 2")
+        assert len(agent.conversation_history) == 2
+        
+        # Clear history
+        agent.conversation_history.clear()
+        
+        # History should be empty
+        assert len(agent.conversation_history) == 0
+    
+    def test_history_rolling_window(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that history enforces rolling window limit."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        # Process more than max_turns (10) queries
+        for i in range(15):
+            agent.process_query(f"Query {i}")
+        
+        # Should only keep last 10
+        assert len(agent.conversation_history) == 10
+        assert agent.conversation_history.turns[0].query == "Query 5"
+        assert agent.conversation_history.turns[9].query == "Query 14"
+    
+    def test_conversation_sources_preserved(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that sources are preserved in conversation history."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        response = agent.process_query("What is Python?")
+        
+        # Check that sources were added to history
+        turn = agent.conversation_history.turns[0]
+        assert len(turn.sources) == len(response.sources)
+        assert turn.sources[0].file_path == response.sources[0].filename
+    
+    def test_conversation_tokens_tracked(self, test_config, mock_vector_store, mock_llm_provider):
+        """Test that token usage is tracked in conversation history."""
+        agent = RAGAgent(test_config, mock_vector_store, mock_llm_provider)
+        
+        response = agent.process_query("What is Python?")
+        
+        # Check that tokens were recorded
+        turn = agent.conversation_history.turns[0]
+        assert turn.tokens_used == response.tokens_used
+        assert turn.tokens_used == 70  # From mock response
+
