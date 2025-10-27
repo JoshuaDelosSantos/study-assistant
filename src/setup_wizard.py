@@ -211,9 +211,79 @@ def choose_llm_provider() -> Optional[str]:
     return "openai" if choice == "1" else "gemini"
 
 
+def validate_api_key_format(provider: str, api_key: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate API key format (quick local check).
+    
+    Args:
+        provider: Provider name
+        api_key: API key to validate
+        
+    Returns:
+        (is_valid, error_message)
+    """
+    if not api_key or not api_key.strip():
+        return False, "API key cannot be empty"
+    
+    api_key = api_key.strip()
+    
+    if provider == "openai":
+        # OpenAI keys start with 'sk-' and have minimum length
+        if not api_key.startswith("sk-"):
+            return False, "OpenAI API keys should start with 'sk-'"
+        if len(api_key) < 20:
+            return False, "OpenAI API key appears too short"
+    elif provider == "gemini":
+        # Gemini keys are typically 39 characters long
+        if len(api_key) < 20:
+            return False, "Gemini API key appears too short"
+    
+    return True, None
+
+
+def validate_api_key_live(provider: str, api_key: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate API key by making a minimal test call.
+    
+    Args:
+        provider: Provider name
+        api_key: API key to validate
+        
+    Returns:
+        (is_valid, error_message)
+    """
+    try:
+        if provider == "openai":
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, timeout=10.0)
+            # Minimal request to test key - just list models
+            client.models.list()
+            return True, None
+            
+        elif provider == "gemini":
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            # List models to verify key
+            list(genai.list_models())
+            return True, None
+            
+        return False, "Unknown provider"
+        
+    except Exception as e:
+        error_str = str(e).lower()
+        if 'api key' in error_str or 'api_key' in error_str or 'auth' in error_str or '401' in error_str or 'unauthorized' in error_str:
+            return False, "Invalid API key"
+        elif 'network' in error_str or 'connection' in error_str or 'timeout' in error_str:
+            return False, "Network error - could not validate key"
+        elif 'quota' in error_str or 'billing' in error_str:
+            return False, "API key valid but account has billing issues"
+        else:
+            return False, f"Validation failed: {str(e)[:100]}"
+
+
 def get_api_key(provider: str) -> Optional[str]:
     """
-    Get API key from user or environment.
+    Get API key from user or environment with validation.
     
     Args:
         provider: Provider name
@@ -228,7 +298,16 @@ def get_api_key(provider: str) -> Optional[str]:
     if env_key:
         console.print(f"[green]API key found in environment variables[/green]")
         if Confirm.ask("Use this key?", default=True):
-            return env_key
+            # Validate environment key
+            console.print("[cyan]Validating API key...[/cyan]")
+            is_valid, error = validate_api_key_live(provider, env_key)
+            
+            if is_valid:
+                console.print("[green]API key validated successfully[/green]")
+                return env_key
+            else:
+                console.print(f"[yellow]Warning: {error}[/yellow]")
+                console.print("[yellow]Environment key validation failed, please enter a different key[/yellow]\n")
     
     # Provide instructions
     if provider == "openai":
@@ -238,20 +317,53 @@ def get_api_key(provider: str) -> Optional[str]:
     
     console.print()
     
-    # Prompt for key
-    api_key = Prompt.ask(
-        "Enter your API key",
-        password=True
-    )
+    # Retry loop for manual entry
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        # Prompt for key
+        api_key = Prompt.ask(
+            "Enter your API key",
+            password=True
+        )
+        
+        if not api_key or not api_key.strip():
+            console.print("[yellow]No API key provided[/yellow]")
+            return None
+        
+        api_key = api_key.strip()
+        
+        # Step 1: Format validation (quick, no network)
+        is_valid_format, format_error = validate_api_key_format(provider, api_key)
+        if not is_valid_format:
+            console.print(f"[red]{format_error}[/red]")
+            if attempt < max_attempts - 1:
+                if not Confirm.ask("Try again?", default=True):
+                    return None
+            continue
+        
+        # Step 2: Live validation (requires network)
+        console.print("[cyan]Validating API key...[/cyan]")
+        is_valid_live, live_error = validate_api_key_live(provider, api_key)
+        
+        if is_valid_live:
+            console.print("[green]API key validated successfully[/green]")
+            return api_key
+        else:
+            console.print(f"[red]{live_error}[/red]")
+            
+            # Offer to skip validation on network errors
+            if 'network' in live_error.lower():
+                console.print("[yellow]Unable to validate due to network issue[/yellow]")
+                if Confirm.ask("Skip validation and use this key anyway?", default=False):
+                    return api_key
+            
+            # Retry prompt
+            if attempt < max_attempts - 1:
+                if not Confirm.ask("Try again?", default=True):
+                    return None
     
-    if not api_key or not api_key.strip():
-        console.print("[yellow]No API key provided[/yellow]")
-        return None
-    
-    # TODO: Validate API key by making a test call
-    # For now, just check it's not empty
-    
-    return api_key.strip()
+    console.print(f"[red]Maximum validation attempts ({max_attempts}) exceeded[/red]")
+    return None
 
 
 def get_directories() -> List[str]:
