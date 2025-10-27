@@ -23,7 +23,7 @@ A command-line application that:
 
 **Language Model Integration**: Multi-provider support (student-configured)
 - OpenAI (gpt-3.5-turbo, gpt-4, gpt-4o)
-- Google Gemini (gemini-pro, gemini-1.5-pro, gemini-1.5-flash)
+- Google Gemini (gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-2.0-flash)
 - Configurable provider and model selection
 - Falls back to local embeddings for search
 
