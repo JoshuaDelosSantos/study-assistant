@@ -190,6 +190,11 @@ def run_main_loop(config: Config) -> None:
             elif query.lower() == "clear":
                 clear_conversation_history(agent)
             
+            elif query.lower() in ["reconfig", "reconfigure", "setup"]:
+                reconfigure_system(config)
+                # Exit the main loop - user should restart the app
+                break
+            
             else:
                 # Process query using RAG agent
                 process_query(agent, query, config)
@@ -262,7 +267,7 @@ def process_query(agent: RAGAgent, query: str, config: Config) -> None:
         # Provide helpful messages based on error type
         if 'api key' in error_str or 'authentication' in error_str or '401' in error_str:
             console.print("[red]❌ API key is invalid or expired[/red]")
-            console.print("[yellow]💡 Delete config.yaml and run again to reconfigure[/yellow]")
+            console.print("[yellow]💡 Use 'reconfig' command to reconfigure your API key[/yellow]")
         elif 'rate limit' in error_str or '429' in error_str:
             console.print("[red]❌ Rate limit exceeded[/red]")
             console.print("[yellow]💡 Wait a few moments and try again, or upgrade your API plan[/yellow]")
@@ -295,6 +300,7 @@ def display_help() -> None:
   [cyan]history[/cyan]   - View conversation history
   [cyan]clear[/cyan]     - Clear conversation history
   [cyan]reindex[/cyan]   - Rebuild document index
+  [cyan]reconfig[/cyan]  - Reconfigure system (delete config and restart setup)
   [cyan]q, exit[/cyan]   - Quit the application
 
 [bold]Usage:[/bold]
@@ -462,6 +468,37 @@ def clear_conversation_history(agent: RAGAgent) -> None:
     turn_count = len(agent.conversation_history)
     agent.conversation_history.clear()
     console.print(f"[green]✓ Cleared {turn_count} turn(s) from conversation history[/green]\n")
+
+
+def reconfigure_system(config: Config) -> None:
+    """
+    Reconfigure the system by deleting config and prompting for restart.
+    
+    Args:
+        config: Current configuration
+    """
+    console.print("\n[bold yellow]⚠️  Reconfigure System[/bold yellow]\n")
+    console.print("This will delete your current configuration and require you to set up again.")
+    console.print("Your indexed documents will remain intact.\n")
+    
+    if not Confirm.ask("Are you sure you want to reconfigure?", default=False):
+        console.print("[yellow]Reconfiguration cancelled.[/yellow]\n")
+        return
+    
+    # Delete config file
+    from src.config import CONFIG_FILE
+    try:
+        if CONFIG_FILE.exists():
+            CONFIG_FILE.unlink()
+            console.print("[green]✓ Configuration deleted[/green]")
+        else:
+            console.print("[yellow]No configuration file found[/yellow]")
+        
+        console.print("\n[bold cyan]Please restart the application to run setup wizard.[/bold cyan]")
+        console.print("[dim]Run: python main.py[/dim]\n")
+        
+    except Exception as e:
+        console.print(f"[red]Error deleting configuration: {e}[/red]\n")
 
 # ============================================================================
 # Module Testing
