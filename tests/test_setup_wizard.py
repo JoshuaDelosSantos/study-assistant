@@ -19,6 +19,8 @@ from src.setup_wizard import (
     get_directories_manual,
     choose_llm_provider,
     get_api_key,
+    validate_api_key_format,
+    validate_api_key_live,
 )
 from src.config import Config
 
@@ -380,6 +382,265 @@ class TestAPIKey:
         mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", return_value="  sk-test-key  ")
         mock_console = mocker.patch("src.setup_wizard.console")
         
+        # Mock successful validation
+        mocker.patch("src.setup_wizard.validate_api_key_live", return_value=(True, None))
+        
         api_key = get_api_key("openai")
         
         assert api_key == "sk-test-key"
+
+
+# ============================================================================
+# API Key Validation Tests
+# ============================================================================
+
+@pytest.mark.unit
+class TestAPIKeyValidation:
+    """Test API key validation functions."""
+    
+    def test_validate_format_openai_valid(self):
+        """Test OpenAI key format validation with valid key."""
+        is_valid, error = validate_api_key_format("openai", "sk-1234567890abcdefghij")
+        
+        assert is_valid is True
+        assert error is None
+    
+    def test_validate_format_openai_missing_prefix(self):
+        """Test OpenAI key format validation fails without sk- prefix."""
+        is_valid, error = validate_api_key_format("openai", "1234567890abcdefghij")
+        
+        assert is_valid is False
+        assert "sk-" in error
+    
+    def test_validate_format_openai_too_short(self):
+        """Test OpenAI key format validation fails when too short."""
+        is_valid, error = validate_api_key_format("openai", "sk-123")
+        
+        assert is_valid is False
+        assert "too short" in error
+    
+    def test_validate_format_gemini_valid(self):
+        """Test Gemini key format validation with valid key."""
+        is_valid, error = validate_api_key_format("gemini", "AIzaSyABCDEF1234567890abcdefghijk")
+        
+        assert is_valid is True
+        assert error is None
+    
+    def test_validate_format_gemini_too_short(self):
+        """Test Gemini key format validation fails when too short."""
+        is_valid, error = validate_api_key_format("gemini", "AIzaSy123")
+        
+        assert is_valid is False
+        assert "too short" in error
+    
+    def test_validate_format_empty_key(self):
+        """Test format validation fails with empty key."""
+        is_valid, error = validate_api_key_format("openai", "")
+        
+        assert is_valid is False
+        assert "empty" in error
+    
+    def test_validate_format_whitespace_only(self):
+        """Test format validation fails with whitespace only."""
+        is_valid, error = validate_api_key_format("openai", "   ")
+        
+        assert is_valid is False
+        assert "empty" in error
+    
+    def test_validate_live_openai_success(self, mocker):
+        """Test live validation succeeds with valid OpenAI key."""
+        # Mock OpenAI client
+        mock_client = MagicMock()
+        mock_client.models.list.return_value = []
+        mock_openai_class = mocker.patch("openai.OpenAI", return_value=mock_client)
+        
+        is_valid, error = validate_api_key_live("openai", "sk-test-key")
+        
+        assert is_valid is True
+        assert error is None
+        mock_openai_class.assert_called_once_with(api_key="sk-test-key", timeout=10.0)
+        mock_client.models.list.assert_called_once()
+    
+    def test_validate_live_openai_invalid_key(self, mocker):
+        """Test live validation fails with invalid OpenAI key."""
+        # Mock OpenAI client to raise auth error
+        mock_client = MagicMock()
+        mock_client.models.list.side_effect = Exception("401 Unauthorized: Invalid API key")
+        mocker.patch("openai.OpenAI", return_value=mock_client)
+        
+        is_valid, error = validate_api_key_live("openai", "sk-invalid-key")
+        
+        assert is_valid is False
+        assert "Invalid API key" in error
+    
+    def test_validate_live_openai_network_error(self, mocker):
+        """Test live validation handles network errors."""
+        # Mock OpenAI client to raise network error
+        mock_client = MagicMock()
+        mock_client.models.list.side_effect = Exception("Network connection failed")
+        mocker.patch("openai.OpenAI", return_value=mock_client)
+        
+        is_valid, error = validate_api_key_live("openai", "sk-test-key")
+        
+        assert is_valid is False
+        assert "Network error" in error
+    
+    def test_validate_live_openai_billing_error(self, mocker):
+        """Test live validation detects billing issues."""
+        # Mock OpenAI client to raise billing error
+        mock_client = MagicMock()
+        mock_client.models.list.side_effect = Exception("Quota exceeded: billing required")
+        mocker.patch("openai.OpenAI", return_value=mock_client)
+        
+        is_valid, error = validate_api_key_live("openai", "sk-test-key")
+        
+        assert is_valid is False
+        assert "billing" in error
+    
+    def test_validate_live_gemini_success(self, mocker):
+        """Test live validation succeeds with valid Gemini key."""
+        # Mock Gemini module
+        mock_genai = mocker.MagicMock()
+        mock_genai.list_models.return_value = iter([])  # Return an empty iterator
+        
+        # Use sys.modules to inject the mock
+        import sys
+        sys.modules['google.generativeai'] = mock_genai
+        
+        try:
+            is_valid, error = validate_api_key_live("gemini", "AIzaSyTest123")
+            
+            assert is_valid is True
+            assert error is None
+            mock_genai.configure.assert_called_once_with(api_key="AIzaSyTest123")
+        finally:
+            # Clean up
+            if 'google.generativeai' in sys.modules:
+                del sys.modules['google.generativeai']
+    
+    def test_validate_live_gemini_invalid_key(self, mocker):
+        """Test live validation fails with invalid Gemini key."""
+        # Mock Gemini module to raise auth error
+        mock_genai = mocker.MagicMock()
+        mock_genai.configure.side_effect = Exception("Invalid API key")
+        
+        # Use sys.modules to inject the mock
+        import sys
+        sys.modules['google.generativeai'] = mock_genai
+        
+        try:
+            is_valid, error = validate_api_key_live("gemini", "AIzaSyInvalid")
+            
+            assert is_valid is False
+            assert "Invalid API key" in error
+        finally:
+            # Clean up
+            if 'google.generativeai' in sys.modules:
+                del sys.modules['google.generativeai']
+    
+    def test_get_api_key_with_valid_format_and_live(self, mocker, clean_env):
+        """Test get_api_key with successful format and live validation."""
+        mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", return_value="sk-test-key-12345678901234")
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # Mock successful validation
+        mocker.patch("src.setup_wizard.validate_api_key_live", return_value=(True, None))
+        
+        api_key = get_api_key("openai")
+        
+        assert api_key == "sk-test-key-12345678901234"
+    
+    def test_get_api_key_format_failure_retry(self, mocker, clean_env):
+        """Test get_api_key retries on format validation failure."""
+        # First attempt: bad format, second attempt: good format
+        mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", side_effect=["bad-key", "sk-good-key-12345678901234"])
+        mock_confirm = mocker.patch("src.setup_wizard.Confirm.ask", return_value=True)
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # Mock successful live validation for second key
+        mocker.patch("src.setup_wizard.validate_api_key_live", return_value=(True, None))
+        
+        api_key = get_api_key("openai")
+        
+        assert api_key == "sk-good-key-12345678901234"
+        assert mock_prompt.call_count == 2
+    
+    def test_get_api_key_live_failure_retry(self, mocker, clean_env):
+        """Test get_api_key retries on live validation failure."""
+        # Both attempts have valid format
+        mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", side_effect=["sk-invalid-12345678901234", "sk-valid-12345678901234"])
+        mock_confirm = mocker.patch("src.setup_wizard.Confirm.ask", return_value=True)
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # First validation fails, second succeeds
+        mocker.patch("src.setup_wizard.validate_api_key_live", side_effect=[
+            (False, "Invalid API key"),
+            (True, None)
+        ])
+        
+        api_key = get_api_key("openai")
+        
+        assert api_key == "sk-valid-12345678901234"
+        assert mock_prompt.call_count == 2
+    
+    def test_get_api_key_network_error_skip_option(self, mocker, clean_env):
+        """Test get_api_key offers skip option on network errors."""
+        mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", return_value="sk-test-key-12345678901234")
+        # First confirm is to skip validation, second would be retry (not called)
+        mock_confirm = mocker.patch("src.setup_wizard.Confirm.ask", return_value=True)
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # Mock network error during validation
+        mocker.patch("src.setup_wizard.validate_api_key_live", return_value=(False, "Network error - could not validate key"))
+        
+        api_key = get_api_key("openai")
+        
+        # Should return key despite validation failure (user skipped)
+        assert api_key == "sk-test-key-12345678901234"
+        # Confirm should be called once for skip option
+        assert mock_confirm.call_count == 1
+    
+    def test_get_api_key_max_attempts_exceeded(self, mocker, clean_env):
+        """Test get_api_key returns None after max attempts."""
+        # All attempts fail validation
+        mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", return_value="sk-invalid-12345678901234")
+        mock_confirm = mocker.patch("src.setup_wizard.Confirm.ask", return_value=True)
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # Mock consistent validation failure
+        mocker.patch("src.setup_wizard.validate_api_key_live", return_value=(False, "Invalid API key"))
+        
+        api_key = get_api_key("openai")
+        
+        assert api_key is None
+        assert mock_prompt.call_count == 3  # max_attempts
+    
+    def test_get_api_key_env_key_validation_success(self, mocker, mock_openai_env):
+        """Test environment key is validated before use."""
+        mock_confirm = mocker.patch("src.setup_wizard.Confirm.ask", return_value=True)
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # Mock successful validation
+        mocker.patch("src.setup_wizard.validate_api_key_live", return_value=(True, None))
+        
+        api_key = get_api_key("openai")
+        
+        assert api_key == mock_openai_env
+    
+    def test_get_api_key_env_key_validation_failure(self, mocker, mock_openai_env):
+        """Test falls back to manual entry if environment key validation fails."""
+        # First confirm to use env key, then validation fails, then manual entry
+        mock_confirm = mocker.patch("src.setup_wizard.Confirm.ask", return_value=True)
+        mock_prompt = mocker.patch("src.setup_wizard.Prompt.ask", return_value="sk-new-valid-12345678901234")
+        mock_console = mocker.patch("src.setup_wizard.console")
+        
+        # First validation (env key) fails, second (manual) succeeds
+        mocker.patch("src.setup_wizard.validate_api_key_live", side_effect=[
+            (False, "Invalid API key"),
+            (True, None)
+        ])
+        
+        api_key = get_api_key("openai")
+        
+        assert api_key == "sk-new-valid-12345678901234"
+        assert mock_prompt.call_count == 1
