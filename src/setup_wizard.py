@@ -197,7 +197,7 @@ def choose_llm_provider() -> Optional[str]:
     table.add_column("Notes", width=30)
     
     table.add_row("1", "OpenAI", "gpt-4o", "High quality, moderate cost")
-    table.add_row("2", "Google Gemini", "gemini-1.5-flash", "Fast, cost-effective")
+    table.add_row("2", "Google Gemini", "gemini-2.5-flash", "Fast, best price-performance")
     
     console.print(table)
     console.print()
@@ -656,7 +656,7 @@ def configure_llm(config: Config) -> bool:
     
     models = {
         "openai": ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o"],
-        "gemini": ["gemini-pro", "gemini-1.5-pro", "gemini-1.5-flash"]
+        "gemini": ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-2.0-flash"]
     }
     
     console.print(f"Available models for {provider}:")
