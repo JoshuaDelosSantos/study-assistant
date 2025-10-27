@@ -52,6 +52,7 @@ A terminal-based AI assistant that answers questions about your study materials 
 | `history` | View conversation history |
 | `clear` | Clear conversation history |
 | `reindex` | Rebuild document index |
+| `reconfig` | Reconfigure system (delete config and restart setup) |
 | `q`, `exit` | Quit application |
 
 ## Configuration
@@ -132,7 +133,7 @@ Conversation History (3 turns):
   - OpenAI keys start with `sk-`
   - Get OpenAI key: https://platform.openai.com/api-keys
   - Get Gemini key: https://makersuite.google.com/app/apikey
-- **Update configuration:** Delete `config.yaml` and run `python3 main.py` again
+- **Update configuration:** Run `reconfig` command in the app or delete `config.yaml` and restart
 
 ### "Rate limit exceeded"
 - **Wait 60 seconds** and try again
