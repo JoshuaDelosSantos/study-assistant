@@ -257,10 +257,31 @@ def process_query(agent: RAGAgent, query: str, config: Config) -> None:
             console.print()
     
     except Exception as e:
-        console.print(f"[red]Error processing query: {e}[/red]")
+        error_str = str(e).lower()
+        
+        # Provide helpful messages based on error type
+        if 'api key' in error_str or 'authentication' in error_str or '401' in error_str:
+            console.print("[red]❌ API key is invalid or expired[/red]")
+            console.print("[yellow]💡 Delete config.yaml and run again to reconfigure[/yellow]")
+        elif 'rate limit' in error_str or '429' in error_str:
+            console.print("[red]❌ Rate limit exceeded[/red]")
+            console.print("[yellow]💡 Wait a few moments and try again, or upgrade your API plan[/yellow]")
+        elif 'network' in error_str or 'connection' in error_str or 'timeout' in error_str:
+            console.print("[red]❌ Network error - check your internet connection[/red]")
+            console.print("[yellow]💡 Verify you're connected to the internet and try again[/yellow]")
+        elif 'context length' in error_str or 'token' in error_str and 'exceed' in error_str:
+            console.print("[red]❌ Query too long for model context window[/red]")
+            console.print("[yellow]💡 Try a shorter question or reduce top_k in config.yaml[/yellow]")
+        elif 'quota' in error_str or 'billing' in error_str:
+            console.print("[red]❌ API quota exceeded or billing issue[/red]")
+            console.print("[yellow]💡 Check your API account billing status[/yellow]")
+        else:
+            console.print(f"[red]❌ Error: {e}[/red]")
+            console.print("[yellow]💡 Try rephrasing your question or check your configuration[/yellow]")
+        
         if config.verbose:
             import traceback
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+            console.print(f"\n[dim]Debug trace:\n{traceback.format_exc()}[/dim]")
         console.print()
 
 
