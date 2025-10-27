@@ -8,10 +8,12 @@ coordinates vector search, context assembly, and LLM generation to answer querie
 from dataclasses import dataclass
 from typing import List, Optional
 import logging
+from datetime import datetime
 
 from src.config import Config
 from src.vector_store import VectorStore, QueryResult
 from src.llm_providers import LLMProvider, LLMResponse
+from src.conversation import ConversationHistory, ConversationTurn, Source as ConvSource
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ class RAGAgent:
         self.config = config
         self.vector_store = vector_store
         self.llm_provider = llm_provider
+        self.conversation_history = ConversationHistory(max_turns=10)
     
     def _format_sources(self, results: List[QueryResult]) -> List[Source]:
         """
@@ -122,6 +125,7 @@ class RAGAgent:
         Reserves tokens for:
         - Query text
         - System prompt and template
+        - Conversation history (last 3 turns)
         - Generation (max_tokens from config)
         
         Args:
@@ -139,8 +143,12 @@ class RAGAgent:
         # Estimate system prompt tokens (conservative estimate)
         system_prompt_tokens = 100
         
-        # Calculate budget
-        budget = max_model_tokens - query_tokens - system_prompt_tokens - max_generation
+        # Count tokens in conversation history (last 3 turns)
+        conversation_context = self.conversation_history.get_recent_context(n=3)
+        conversation_tokens = self.llm_provider.count_tokens(conversation_context) if conversation_context else 0
+        
+        # Calculate budget (reserve space for conversation history)
+        budget = max_model_tokens - query_tokens - system_prompt_tokens - conversation_tokens - max_generation
         
         # Ensure positive budget
         return max(0, budget)
@@ -184,32 +192,46 @@ class RAGAgent:
     
     def _build_prompt(self, query: str, context: str) -> str:
         """
-        Build the final prompt for the LLM.
+        Build the final prompt for the LLM, including conversation history.
         
         Args:
             query: User query
-            context: Retrieved context
+            context: Retrieved context from documents
         
         Returns:
-            Formatted prompt string
+            Formatted prompt string with conversation history
         """
-        if not context:
-            return (
-                f"You are a helpful study assistant. Answer the following question:\n\n"
-                f"Question: {query}\n\n"
-                f"Note: No relevant context was found in the indexed documents. "
+        # Get recent conversation history
+        conversation_context = self.conversation_history.get_recent_context(n=3)
+        
+        # Build base prompt
+        prompt_parts = ["You are a helpful study assistant."]
+        
+        # Add conversation history if it exists
+        if conversation_context:
+            prompt_parts.append(
+                f"\nPrevious conversation:\n{conversation_context}\n"
+            )
+        
+        # Add document context or no-context message
+        if context:
+            prompt_parts.append(
+                f"\nUse the context below to answer the question. "
+                f"If the context doesn't contain relevant information, "
+                f"say so and provide a general answer.\n\n"
+                f"Context:\n{context}"
+            )
+        else:
+            prompt_parts.append(
+                f"\nNote: No relevant context was found in the indexed documents. "
                 f"Provide a helpful response based on your general knowledge, but "
                 f"indicate that the answer is not based on the user's study materials."
             )
         
-        return (
-            f"You are a helpful study assistant. Use the context below to answer "
-            f"the question. If the context doesn't contain relevant information, "
-            f"say so and provide a general answer.\n\n"
-            f"Context:\n{context}\n\n"
-            f"Question: {query}\n\n"
-            f"Answer:"
-        )
+        # Add current question
+        prompt_parts.append(f"\n\nQuestion: {query}\n\nAnswer:")
+        
+        return "".join(prompt_parts)
     
     def process_query(self, query: str) -> AgentResponse:
         """
@@ -277,10 +299,31 @@ class RAGAgent:
             completion_tokens=llm_response.usage.completion_tokens if llm_response.usage else None
         )
         
+        # Step 6: Add turn to conversation history
+        conv_sources = [
+            ConvSource(
+                file_path=src.filename,
+                chunk_index=src.chunk_index,
+                page_number=src.page,
+                relevance_score=src.similarity
+            )
+            for src in sources
+        ]
+        
+        turn = ConversationTurn(
+            query=query,
+            answer=llm_response.content,
+            sources=conv_sources,
+            timestamp=datetime.now(),
+            tokens_used=response.tokens_used
+        )
+        self.conversation_history.add_turn(turn)
+        
         logger.info(
             f"Query processed successfully. "
             f"Sources: {len(sources)}, "
-            f"Tokens: {response.tokens_used or 'N/A'}"
+            f"Tokens: {response.tokens_used or 'N/A'}, "
+            f"History: {len(self.conversation_history)} turns"
         )
         
         return response
