@@ -60,7 +60,7 @@ Configuration is stored in `config.yaml`. Advanced users can edit directly:
 
 ```yaml
 llm_provider: openai          # or 'gemini'
-llm_model: gpt-4o             # or 'gemini-1.5-flash', 'gpt-3.5-turbo'
+llm_model: gpt-4o             # or 'gemini-2.5-flash', 'gpt-3.5-turbo'
 llm_api_key: sk-xxx...        # Your API key
 directories:
   - /path/to/study/materials
@@ -164,7 +164,8 @@ API costs vary by provider and model:
 |----------|-------|----------------|-------|
 | OpenAI | GPT-4o | ~$0.005 | Recommended for quality |
 | OpenAI | GPT-3.5-turbo | ~$0.001 | Budget-friendly |
-| Google | Gemini 1.5 Flash | ~$0.001** | Free tier available |
+| Google | Gemini 2.5 Flash | ~$0.001** | Best price-performance, stable |
+| Google | Gemini 2.5 Flash-Lite | ~$0.0005** | Ultra fast, most cost-efficient |
 
 \* Typical query with 5 sources, 500 token context  
 \** After free tier limit
